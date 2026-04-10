@@ -206,73 +206,6 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
 
-void setup() {
-  // Setup PWM for speed control
-  ledcAttach(ENA, PWM_FREQ, PWM_RESOLUTION);
-  ledcAttach(ENB, PWM_FREQ, PWM_RESOLUTION);
-
-  // Setup direction pins as regular digital outputs
-  pinMode(IN1, OUTPUT); 
-  pinMode(IN2, OUTPUT); 
-  pinMode(IN3, OUTPUT); 
-  pinMode(IN4, OUTPUT); 
-
-  // Setup MPU6050
-  imu.setup();
-  imu.setBias();  // Calibrate gyro when car is stationary
-  
-  Serial.begin(115200);
-  Serial.println("Starting Arduino BLE Client application...");
-  BLEDevice::init("");
-
-  // Retrieve a Scanner and set the callback we want to use to be informed when we
-  // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 5 seconds.
-  BLEScan* pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setInterval(1349);
-  pBLEScan->setWindow(449);
-  pBLEScan->setActiveScan(true);
-  pBLEScan->start(5, false);
-
-  // set all motors to off by default
-  stop();
-
-  // setup bluetooth
-
-
-  last_time = micros();
-}
-
-void loop() {
-  // goForwardIMU();
-  // If the flag "doConnect" is true then we have scanned for and found the desired
-  // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
-  // connected we set the connected flag to be true.
-  if (doConnect == true) {
-    if (connectToServer()) {
-      Serial.println("We are now connected to the BLE Server.");
-    } else {
-      Serial.println("We have failed to connect to the server; there is nothin more we will do.");
-    }
-    doConnect = false;
-  }
-
-  // If we are connected to a peer BLE Server, update the characteristic each time we are reached
-  // with the current time since boot.
-  if (connected) {
-    String newValue = "";
-    
-    // Set the characteristic's value to be the array of bytes that is actually a string.
-    pRemoteCharacteristic->writeValue(newValue.c_str(), newValue.length());
-  }else if(doScan){
-    BLEDevice::getScan()->start(0);  // this is just eample to start scan after disconnect, most likely there is better way to do it in arduino
-  }
-  
-  delay(1000); // Delay a second between loops.
-}
-
-
 void turnCCW(int speed, int time_dur){
   // set right motors to reverse
   digitalWrite(IN1, LOW);
@@ -416,8 +349,74 @@ void goForwardIMU(int speed){
   Serial.print(left_speed);
   Serial.print(" R: ");
   Serial.println(right_speed);
-  /*  
+  */
 
   previous_error = error;
   delay(10);  // 100Hz control loop
+}
+
+void setup() {
+  // Setup PWM for speed control
+  ledcAttach(ENA, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttach(ENB, PWM_FREQ, PWM_RESOLUTION);
+
+  // Setup direction pins as regular digital outputs
+  pinMode(IN1, OUTPUT); 
+  pinMode(IN2, OUTPUT); 
+  pinMode(IN3, OUTPUT); 
+  pinMode(IN4, OUTPUT); 
+
+  // Setup MPU6050
+  imu.setup();
+  imu.setBias();  // Calibrate gyro when car is stationary
+  
+  Serial.begin(115200);
+  Serial.println("Starting Arduino BLE Client application...");
+  BLEDevice::init("");
+
+  // Retrieve a Scanner and set the callback we want to use to be informed when we
+  // have detected a new device.  Specify that we want active scanning and start the
+  // scan to run for 5 seconds.
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setInterval(1349);
+  pBLEScan->setWindow(449);
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(5, false);
+
+  // set all motors to off by default
+  stop();
+
+  // setup bluetooth
+
+
+  last_time = micros();
+}
+
+void loop() {
+  // goForwardIMU();
+  // If the flag "doConnect" is true then we have scanned for and found the desired
+  // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
+  // connected we set the connected flag to be true.
+  if (doConnect == true) {
+    if (connectToServer()) {
+      Serial.println("We are now connected to the BLE Server.");
+    } else {
+      Serial.println("Failed to connect to server.");
+    }
+    doConnect = false;
+  }
+
+  // If we are connected to a peer BLE Server, update the characteristic each time we are reached
+  // with the current time since boot.
+  if (connected) {
+    String newValue = "";
+    
+    // Set the characteristic's value to be the array of bytes that is actually a string.
+    pRemoteCharacteristic->writeValue(newValue.c_str(), newValue.length());
+  }else if(doScan){
+    BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect
+  }
+  
+  delay(1000); // Delay a second between loops.
 }
