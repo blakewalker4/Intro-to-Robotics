@@ -24,8 +24,8 @@ void stop(int time_dur = 100);
 /*
  * IN1   IN2   | Motor Behavior
  * ----------  | 
- * HIGH  LOW   | Forward
- * LOW   HIGH  | Backward
+ * HIGH  LOW   | Clockwise (forward for right motor)
+ * LOW   HIGH  | Counter-Clockwise (forward for left motor)
  * HIGH  HIGH  | Brake (fast stop)
  * LOW   LOW   | Coast (slow stop)
  */
@@ -48,21 +48,10 @@ void stop(int time_dur = 100);
 #define PWM_RESOLUTION 8   // 8-bit resolution (0-255)
 
 // Speed settings
-int base_speed = 170;  // (0-255)
 int max_adjustment = 50;  // Maximum speed change between motors
-
 
 // IMU stuff
 basicMPU6050<> imu;
-
-// PID constants for drift correction
-float Kp = 1.5;  // Proportional gain - adjust as neccessary
-float Ki = 0.05; // Integral gain - adjust as neccessary
-float Kd = 0.1;  // Derivative gain - adjust as neccessary
-
-float previous_error = 0;
-float integral = 0;
-unsigned long last_time = 0;
 
 // Bluetooth stuff
 // The remote service we wish to connect to.
@@ -100,26 +89,27 @@ static void notifyCallback(
       }
       else if(strcmp(buf, "TurnLeft")==0){
         state = TURNLEFT;
-        turnCCW(200,1000);
+        rotateToAngleIMU(270, 190);
       }
       else if(strcmp(buf, "TurnRight")==0){
         state = TURNRIGHT;
-        turnCW(200,1000);
+        rotateToAngleIMU(90, 190);
       }
       else if(strcmp(buf, "TurnAround")==0){
         state = TURNAROUND;
-        turnCCW(200,1000); //ADD IMU CODE
+        rotateToAngleIMU(180, 190);
       }
       else if(strcmp(buf, "ComeHere")==0){
         state = COMEHERE;
+        //TODO
       }
       else if(strcmp(buf, "GoForward")==0){
         state = GOFORWARD;
-        goForwardIMU(200);
+        goStraightIMU(200);
       }
       else if(strcmp(buf, "GoBackward")==0){
         state = GOBACKWARD;
-        goBackward(200);
+        goStraightIMU(200);
       }
     }
     else{
@@ -206,8 +196,12 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
 
-void turnCCW(int speed, int time_dur){
-  // set right motors to reverse
+float deg2rad(float degrees){
+  return degrees*3.141592/180;
+}
+
+void turnCW(int speed, int time_dur){
+  // set left motors to reverse
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, HIGH);
   // set right motors to forward
@@ -222,7 +216,7 @@ void turnCCW(int speed, int time_dur){
   }
 }
 
-void turnCW(int speed, int time_dur){
+void turnCCW(int speed, int time_dur){
   // set left motors to forward
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
@@ -294,65 +288,209 @@ void dance(){
   stop();
 }
 
-void goForwardIMU(int speed){
-  // Calculate loop time for proper PID
+void goStraightIMU(int base_speed){ // Unified function for goForward and goBackward
+  // PID constants for drift correction
+  float Kp_forward = 40;  // Proportional gain - adjust as neccessary
+  float Ki_forward = 0.3; // Integral gain - adjust as neccessary
+  float Kp_backward = 40;  // Proportional gain - adjust as neccessary
+  float Ki_backward = 0.3; // Integral gain - adjust as neccessary
+  float Kp;
+  float Ki;
+  float Kd = 0;  // Derivative gain - adjust as neccessary
+  float previous_error = 0;
+  float integral = 0;
+  unsigned long last_time = micros();
+  unsigned long start_time = micros();
   unsigned long now = micros();
-  float dt = (now - last_time) / 1000000.0;  // Convert to seconds
-  last_time = now;
+  int left_speed;
+  int right_speed;
+  float correction;
+  unsigned long timeout = 7000; // 7 second timeout safety
+  while((state == GOFORWARD || state == GOBACKWARD) && (now-start_time < timeout*1000)){
+    // Calculate loop time for proper PID
+    now = micros();
+    float dt = (now - last_time) / 1000000.0;  // Convert to seconds
+    last_time = now;
+    
+    // Get gyro Z-axis (turning rate)
+    float turn_rate = imu.gz();  // degrees per second
+    
+    // We want turn rate to be 0 (going straight)
+    float error = 0 - turn_rate;
+    
+    // PID calculations
+    integral += error * dt;
+    float derivative = (error - previous_error) / dt;
+    
+    // Calculate motor speeds
+    if(state == GOFORWARD){
+      Kp = Kp_forward;
+      Ki = Ki_forward;
 
-  // Update gyro readings
-  imu.updateBias();
-  
-  // Get gyro Z-axis (turning rate)
-  float turn_rate = imu.gz();  // degrees per second
-  
-  // We want turnRate to be 0 (going straight)
-  float error = 0 - turn_rate;
-  
-  // PID calculations
-  integral += error * dt;
-  float derivative = (error - previous_error) / dt;
-  
-  // Calculate correction
-  float correction = Kp * error + Ki * integral + Kd * derivative;
-  
-  // Constrain correction
-  correction = constrain(correction, -max_adjustment, max_adjustment);
-  
-  // Calculate motor speeds
-  int left_speed = base_speed - correction;   // If correction positive, left slower
-  int right_speed = base_speed + correction;  // If correction positive, right faster
-  
-  // Constrain speeds
-  left_speed = constrain(left_speed, 0, 255);
-  right_speed = constrain(right_speed, 0, 255);
+      // Calculate correction
+      correction = Kp * error + Ki * integral + Kd * derivative;
+      
+      // Constrain correction
+      correction = constrain(correction, -max_adjustment, max_adjustment);
+      
+      // Set motor speeds
+      left_speed = base_speed - correction;   // If correction positive, left slower
+      right_speed = base_speed + correction;  // If correction positive, right faster
+      
+      // Set motor directions
+      // set left motors to forward
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      // set right motors to forward
+      digitalWrite(IN3, HIGH);
+      digitalWrite(IN4, LOW);
+    }
+    // NOTE: when going backward, the PID controller is doing very little 
+    // to correct for the integral error, even if Ki_backward is very high, dont know why.
+    // The controlled version is still slightly better though
+    else if(state == GOBACKWARD){
+      Kp = Kp_backward;
+      Ki = Ki_backward;
 
-  // Set motor directions
-  // set left motors to forward
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  // set right motors to forward
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-  
-  // Apply PWM speeds
-  ledcWrite(ENA, left_speed);
-  ledcWrite(ENB, right_speed);
-  
-  // Debug output
-  /*
-  Serial.print("Turn Rate: ");
-  Serial.print(turn_rate);
-  Serial.print(" deg/s, Correction: ");
-  Serial.print(correction);
-  Serial.print(" L: ");
-  Serial.print(left_speed);
-  Serial.print(" R: ");
-  Serial.println(right_speed);
-  */
+      // Calculate correction
+      correction = Kp * error + Ki * integral + Kd * derivative;
+      
+      // Constrain correction
+      correction = constrain(correction, -max_adjustment, max_adjustment);
+      
+      // Set motor speeds
+      left_speed = base_speed + correction;   // If correction positive, left slower
+      right_speed = base_speed - correction;  // If correction positive, right faster
+            
+      // Set motor directions
+      // set left motors to backward
+      digitalWrite(IN1, LOW);
+      digitalWrite(IN2, HIGH);
+      // set right motors to backward
+      digitalWrite(IN3, LOW);
+      digitalWrite(IN4, HIGH);
+    }
+    else{
+      // INVALID STATE
+      break;
+    }
+    // Constrain speeds
+    left_speed = constrain(left_speed, 0, 255);
+    right_speed = constrain(right_speed, 0, 255);
+    
+    // Apply PWM speeds
+    ledcWrite(ENA, left_speed);
+    ledcWrite(ENB, right_speed);
+    
+    // Debug output
+    Serial.print("Turn Rate: ");
+    Serial.println(turn_rate);
+    Serial.print(" deg/s, Correction: ");
+    Serial.println(correction);
+    Serial.print(" L: ");
+    Serial.println(left_speed);
+    Serial.print(" R: ");
+    Serial.println(right_speed);
+    Serial.print("Time elapsed: ");
+    Serial.println(float((now-start_time)/1000000));
+    Serial.println("");
+    
+    previous_error = error;
+    delay(10);  // 100Hz control loop
+  }
+  Serial.println("exiting loop");
+  stop();
+}
 
-  previous_error = error;
-  delay(10);  // 100Hz control loop
+void rotateToAngleIMU(float target_angle_degrees, int base_speed) {
+  // PID constants for rotation (tune these)
+  float Kp_rotate = 2;  // Proportional gain
+  float Ki_rotate = 0.05;  // Integral gain  
+  float Kd_rotate = 0;   // Derivative gain
+  float current_angle = 0;
+  float previous_error = 0;
+  float integral = 0;
+  unsigned long last_time = micros();
+  unsigned long start_time = millis();
+  unsigned long timeout = 5000; // 5 second timeout safety
+
+  bool clockwise;
+  float target_rad;
+  // For rotations > 180°, consider the shortest path
+  if(target_angle_degrees <= 180) {
+    // Turn clockwise for angles 0-180
+    clockwise = true;
+    target_rad = deg2rad(target_angle_degrees);
+  } else {
+    // Turn counter-clockwise for angles 181-360 (shorter)
+    clockwise = false;
+    target_rad = deg2rad(360 - target_angle_degrees);
+  }
+  
+  // Rotate until reaching target angle
+  while(state != IDLE && abs(current_angle) < target_rad) {
+    unsigned long now = micros();
+    float dt = (now - last_time) / 1000000.0;
+    if(dt > 0.05) dt = 0.05;
+    last_time = now;
+    
+    // Get current rotation rate
+    float turn_rate = imu.gz();
+    
+    // Integrate to get angle
+    current_angle += abs(turn_rate) * dt;
+    
+    // Calculate error (how much more to turn)
+    float error = target_rad - abs(current_angle);
+    
+    // PID calculations
+    integral += error * dt;
+    
+    float derivative = (error - previous_error) / dt;
+    
+    // Calculate motor speed based on error
+    int speed = base_speed + Kp_rotate * error + Ki_rotate * integral + Kd_rotate * derivative;
+    speed = constrain(speed, 170, 230);
+
+    // Set motors for rotation
+    if(clockwise) {
+      // Clockwise: left forward, right backward
+      digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+      digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+
+    }
+    else {
+      // Counter-clockwise: left backward, right forward  
+      digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+      digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+    }
+    
+    // Apply speed
+    ledcWrite(ENA, speed);
+    ledcWrite(ENB, speed);
+    
+    // Debug output
+    Serial.print("Rotated: ");
+    Serial.print(current_angle);
+    Serial.print(" / ");
+    Serial.print(target_angle_degrees);
+    Serial.print(" | Rate: ");
+    Serial.println(turn_rate);    
+      
+    // Timeout safety
+    if(millis() - start_time > timeout) {
+      Serial.println("Rotation timeout!");
+      break;
+    }
+    
+    delay(5);  // 200Hz update rate
+  }
+  
+  // Stop motors
+  stop();
+  
+  Serial.print("Final rotation: ");
+  Serial.println(current_angle);
 }
 
 void setup() {
@@ -371,6 +509,8 @@ void setup() {
   imu.setBias();  // Calibrate gyro when car is stationary
   
   Serial.begin(115200);
+  // BLUETOOTH STUFF: COMMENTING OUT FOR TESTING
+  /*
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
 
@@ -383,18 +523,36 @@ void setup() {
   pBLEScan->setWindow(449);
   pBLEScan->setActiveScan(true);
   pBLEScan->start(5, false);
-
+  */
   // set all motors to off by default
   stop();
-
-  // setup bluetooth
-
-
-  last_time = micros();
 }
 
 void loop() {
-  // goForwardIMU();
+  // TESTING PURPOSES
+  /*
+  state = SPIN;
+  // Test 90° clockwise turn
+  rotateToAngleIMU(90, 190);
+  delay(2000);
+  state = SPIN;
+  // Test 90° counter-clockwise turn  
+  rotateToAngleIMU(270, 190);
+  delay(2000);
+  state = SPIN;
+  // Test 180° turn around
+  rotateToAngleIMU(180, 190);
+  delay(2000);
+  */
+
+  // Test clockwise command
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  ledcWrite(ENA, 200);
+  ledcWrite(ENB, 200);
+  delay(1000);
+  stop();
+  /*
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
   // connected we set the connected flag to be true.
@@ -417,6 +575,6 @@ void loop() {
   }else if(doScan){
     BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect
   }
-  
+  */
   delay(1000); // Delay a second between loops.
 }
