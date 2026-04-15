@@ -112,6 +112,27 @@ static void notifyCallback(
         goStraightIMU(200);
       }
     }
+    else if (strcmp(buf, "Stop") == 0){
+        pass;
+      }
+      // last class it could be is ComeHere
+      // ComeHere is returned as "ComeHere:<doa>"
+      else{
+        state = COMEHERE
+        uint8_t idx = 0;
+        while(buf[idx] != ':'){
+          idx++;
+        }
+        while(buf[idx] != '\0'){
+          uint8_t idx2 = 0;
+          come_here_buf[idx2++] = buf[idx++];
+        }
+        uint8_t doa_val = atoi(come_here_buff);
+        // TODO add turn functionality
+        // turn_to_angle(doa_val);
+        Serial.println("doa val: %d", doa_val);
+        // GoForward();
+    }
     else{
       if(strcmp(buf, "Stop")==0){
         stop();
