@@ -77,48 +77,37 @@ static void notifyCallback(
     memcpy(buf, pData, length);
     buf[length] = '\0';
     Serial.println(buf);
+    char come_here_buf[3];
 
     if(state == IDLE){
       if(strcmp(buf, "Dance")==0){
         state = DANCE;
-        dance();
       }
       else if(strcmp(buf, "Spin")==0){
         state = SPIN;
-        spin(200);
       }
       else if(strcmp(buf, "TurnLeft")==0){
         state = TURNLEFT;
-        rotateToAngleIMU(270, 190);
       }
       else if(strcmp(buf, "TurnRight")==0){
         state = TURNRIGHT;
-        rotateToAngleIMU(90, 190);
       }
       else if(strcmp(buf, "TurnAround")==0){
         state = TURNAROUND;
-        rotateToAngleIMU(180, 190);
-      }
-      else if(strcmp(buf, "ComeHere")==0){
-        state = COMEHERE;
-        //TODO
       }
       else if(strcmp(buf, "GoForward")==0){
         state = GOFORWARD;
-        goStraightIMU(200);
       }
       else if(strcmp(buf, "GoBackward")==0){
         state = GOBACKWARD;
-        goStraightIMU(200);
       }
-    }
-    else if (strcmp(buf, "Stop") == 0){
-        pass;
-      }
+      else if (strcmp(buf, "Stop") == 0){
+          ;
+        }
       // last class it could be is ComeHere
       // ComeHere is returned as "ComeHere:<doa>"
       else{
-        state = COMEHERE
+        state = COMEHERE;
         uint8_t idx = 0;
         while(buf[idx] != ':'){
           idx++;
@@ -127,18 +116,17 @@ static void notifyCallback(
           uint8_t idx2 = 0;
           come_here_buf[idx2++] = buf[idx++];
         }
-        uint8_t doa_val = atoi(come_here_buff);
-        // TODO add turn functionality
-        // turn_to_angle(doa_val);
-        Serial.println("doa val: %d", doa_val);
-        // GoForward();
+        uint8_t doa_val = atoi(come_here_buf);
+        rotateToAngleIMU(doa_val, 200, true);
+        Serial.print("doa val: ");
+        Serial.println(doa_val);
+      }
     }
     else{
       if(strcmp(buf, "Stop")==0){
         stop();
       }
     }
-    
 }
 
 class MyClientCallback : public BLEClientCallbacks {
@@ -326,8 +314,8 @@ void goStraightIMU(int base_speed){ // Unified function for goForward and goBack
   int left_speed;
   int right_speed;
   float correction;
-  unsigned long timeout = 7000; // 7 second timeout safety
-  while((state == GOFORWARD || state == GOBACKWARD) && (now-start_time < timeout*1000)){
+  //unsigned long timeout = 7000; // 7 second timeout safety
+  while(state == GOFORWARD || state == GOBACKWARD){
     // Calculate loop time for proper PID
     now = micros();
     float dt = (now - last_time) / 1000000.0;  // Convert to seconds
@@ -404,6 +392,7 @@ void goStraightIMU(int base_speed){ // Unified function for goForward and goBack
     ledcWrite(ENB, right_speed);
     
     // Debug output
+    /*
     Serial.print("Turn Rate: ");
     Serial.println(turn_rate);
     Serial.print(" deg/s, Correction: ");
@@ -415,6 +404,7 @@ void goStraightIMU(int base_speed){ // Unified function for goForward and goBack
     Serial.print("Time elapsed: ");
     Serial.println(float((now-start_time)/1000000));
     Serial.println("");
+    */
     
     previous_error = error;
     delay(10);  // 100Hz control loop
@@ -423,9 +413,9 @@ void goStraightIMU(int base_speed){ // Unified function for goForward and goBack
   stop();
 }
 
-void rotateToAngleIMU(float target_angle_degrees, int base_speed) {
+void rotateToAngleIMU(float target_angle_degrees, int base_speed, bool come_here_flag) {
   // PID constants for rotation (tune these)
-  float Kp_rotate = 2;  // Proportional gain
+  float Kp_rotate = 3;  // Proportional gain
   float Ki_rotate = 0.05;  // Integral gain  
   float Kd_rotate = 0;   // Derivative gain
   float current_angle = 0;
@@ -433,7 +423,6 @@ void rotateToAngleIMU(float target_angle_degrees, int base_speed) {
   float integral = 0;
   unsigned long last_time = micros();
   unsigned long start_time = millis();
-  unsigned long timeout = 5000; // 5 second timeout safety
 
   bool clockwise;
   float target_rad;
@@ -491,24 +480,22 @@ void rotateToAngleIMU(float target_angle_degrees, int base_speed) {
     ledcWrite(ENB, speed);
     
     // Debug output
+    /*
     Serial.print("Rotated: ");
     Serial.print(current_angle);
     Serial.print(" / ");
     Serial.print(target_angle_degrees);
     Serial.print(" | Rate: ");
-    Serial.println(turn_rate);    
-      
-    // Timeout safety
-    if(millis() - start_time > timeout) {
-      Serial.println("Rotation timeout!");
-      break;
-    }
+    Serial.println(turn_rate);
+    */    
     
     delay(5);  // 200Hz update rate
   }
+  if(!come_here_flag){
+    // Stop motors
+    stop();
+  }
   
-  // Stop motors
-  stop();
   
   Serial.print("Final rotation: ");
   Serial.println(current_angle);
@@ -531,7 +518,6 @@ void setup() {
   
   Serial.begin(115200);
   // BLUETOOTH STUFF: COMMENTING OUT FOR TESTING
-  /*
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
 
@@ -544,36 +530,14 @@ void setup() {
   pBLEScan->setWindow(449);
   pBLEScan->setActiveScan(true);
   pBLEScan->start(5, false);
-  */
   // set all motors to off by default
   stop();
 }
 
 void loop() {
-  // TESTING PURPOSES
-  /*
-  state = SPIN;
-  // Test 90° clockwise turn
-  rotateToAngleIMU(90, 190);
-  delay(2000);
-  state = SPIN;
-  // Test 90° counter-clockwise turn  
-  rotateToAngleIMU(270, 190);
-  delay(2000);
-  state = SPIN;
-  // Test 180° turn around
-  rotateToAngleIMU(180, 190);
-  delay(2000);
-  */
+  //FOR NOISE RECORDING
+  goForward(200);
 
-  // Test clockwise command
-  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
-  ledcWrite(ENA, 200);
-  ledcWrite(ENB, 200);
-  delay(1000);
-  stop();
-  /*
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
   // connected we set the connected flag to be true.
@@ -596,6 +560,34 @@ void loop() {
   }else if(doScan){
     BLEDevice::getScan()->start(0);  // this is just example to start scan after disconnect
   }
-  */
+
+  if(state == IDLE){
+    ;
+  }
+  else if(state == DANCE){
+    dance();
+  }
+  else if(state == SPIN){
+    spin(200);
+  }
+  else if(state == TURNLEFT){
+    rotateToAngleIMU(270, 200, false);
+  }
+  else if(state == TURNRIGHT){
+    rotateToAngleIMU(90, 200, false);
+  }
+  else if(state == TURNAROUND){
+    rotateToAngleIMU(180,200, false);
+  }
+  else if(state == GOFORWARD){
+    goStraightIMU(200);
+  }
+  else if(state == GOBACKWARD){
+    goStraightIMU(200);
+  }
+  else if(state == COMEHERE){
+    state = GOFORWARD;
+    goStraightIMU(200);
+  }
   delay(1000); // Delay a second between loops.
 }
