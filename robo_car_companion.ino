@@ -76,8 +76,7 @@ static void notifyCallback(
     char buf[length + 1];
     memcpy(buf, pData, length);
     buf[length] = '\0';
-    Serial.println(buf);
-    char come_here_buf[3];
+    char come_here_buf[4];
 
     if(state == IDLE){
       if(strcmp(buf, "Dance")==0){
@@ -112,14 +111,20 @@ static void notifyCallback(
         while(buf[idx] != ':'){
           idx++;
         }
+        idx++;
+        uint8_t idx2 = 0;
         while(buf[idx] != '\0'){
-          uint8_t idx2 = 0;
           come_here_buf[idx2++] = buf[idx++];
         }
-        uint8_t doa_val = atoi(come_here_buf);
-        rotateToAngleIMU(doa_val, 200, true);
+        come_here_buf[idx2] = '\0';
+        
+        uint16_t angle = atoi(come_here_buf);
+
         Serial.print("doa val: ");
-        Serial.println(doa_val);
+        Serial.println(angle);
+
+        delay(10);
+        rotateToAngleIMU(angle, 200, true);
       }
     }
     else{
@@ -292,8 +297,8 @@ void dance(){
   delay(1000);
   goBackward(200);
   delay(1000);
-  turnCW(200, 1000);
-  turnCCW(200, 1000);
+  turnCW(230, 1000);
+  turnCCW(230, 1000);
   stop();
 }
 
@@ -479,16 +484,6 @@ void rotateToAngleIMU(float target_angle_degrees, int base_speed, bool come_here
     ledcWrite(ENA, speed);
     ledcWrite(ENB, speed);
     
-    // Debug output
-    /*
-    Serial.print("Rotated: ");
-    Serial.print(current_angle);
-    Serial.print(" / ");
-    Serial.print(target_angle_degrees);
-    Serial.print(" | Rate: ");
-    Serial.println(turn_rate);
-    */    
-    
     delay(5);  // 200Hz update rate
   }
   if(!come_here_flag){
@@ -535,9 +530,6 @@ void setup() {
 }
 
 void loop() {
-  //FOR NOISE RECORDING
-  goForward(200);
-
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are 
   // connected we set the connected flag to be true.
@@ -568,7 +560,7 @@ void loop() {
     dance();
   }
   else if(state == SPIN){
-    spin(200);
+    spin(210);
   }
   else if(state == TURNLEFT){
     rotateToAngleIMU(270, 200, false);
@@ -580,14 +572,15 @@ void loop() {
     rotateToAngleIMU(180,200, false);
   }
   else if(state == GOFORWARD){
-    goStraightIMU(200);
+    goStraightIMU(190);
   }
   else if(state == GOBACKWARD){
-    goStraightIMU(200);
+    goStraightIMU(190);
   }
   else if(state == COMEHERE){
+    //already did the turn in the notifyCallback function
     state = GOFORWARD;
-    goStraightIMU(200);
+    goStraightIMU(190);
   }
   delay(1000); // Delay a second between loops.
 }
